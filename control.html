@@ -1,0 +1,100 @@
+<html>
+<head>
+	<style type="text/css">
+		html, body {
+    		height: 100%;
+		}
+		.content {
+    		height: 100%;
+    		display: grid;
+    		grid-template-rows: auto auto;
+    		grid-template-columns: 100%;
+    		box-sizing: content-box;
+		}
+		.slider {
+			display: block;
+			margin-top: auto;
+			margin-bottom: auto;
+		}
+		.slider > input {
+			width: 100%;
+		}
+		.buttons {
+			display: grid;
+  			grid-template-columns: 50% 50%;
+  			grid-template-rows: 50% 50%;
+  			box-sizing: content-box;
+		}
+
+		#stop {
+			grid-row-start: 1;
+  			grid-row-end: 3;
+  			grid-column-start: 2;
+  			grid-column-end: 2;
+		}
+
+		input[type=button] {
+			box-sizing: content-box;
+			margin: 0;
+			font-size: 80px;
+		}
+
+		#stream {
+			transform: rotate(90deg)
+		}
+
+		#speed {
+			appearance: slider-vertical;
+			width: 10px;
+			height: 100%;
+		}
+		#top {
+  			display: flex;
+  			flex-direction: row;
+		}
+		#top > div:first-child {
+			flex: auto;
+		}
+		#top > div:last-child {
+			width: 50px;
+		}
+
+	</style>
+</head>
+<body>
+	<div class="content">
+		<div id="top">
+			<div>
+				<img id="stream" src="http://192.168.1.9:81/stream" width="50%" />
+			</div>
+			<div>
+				<input type="range" min="0" max="255" value="120" orient="vertical" id="speed" />
+			</div>
+		</div>
+		<div class="slider">
+			<input type="range" min="15" max="23" id="direction">
+		</div>
+		<div class="buttons">
+			<input type="button" id="start" value="start" onclick="speed(1)">
+			<input type="button" id="stop" value="stop" onclick="speed(0)">
+			<input type="button" id="start" value="rev" onclick="speed(-1)">
+		</div>
+	</div>
+
+<script type="text/javascript">
+	let dir = 0;
+	function direction(e) {
+		fetch('http://192.168.1.9/steering?dir=' + e.target.value);
+	}
+
+	function speed(v) {
+		dir = v = v ?? dir;
+		v *= document.getElementById("speed").value
+		fetch('http://192.168.1.9/speed?fl=' + v);
+	}
+
+	document.getElementById("direction").addEventListener('change', direction);
+	document.getElementById("speed").addEventListener('change', () => speed());
+</script>
+</body>
+</html>

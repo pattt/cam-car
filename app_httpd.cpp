@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <Servo.h>
-// #include <ESP32Servo.h>
-
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "esp_camera.h"
@@ -39,13 +36,13 @@
 #define FACE_COLOR_PURPLE (FACE_COLOR_BLUE | FACE_COLOR_RED)
 
 int flashlight = 0;
-
-Servo servo1;
-
-// PWM
-const int pwmFreq = 10000;
-const int pwmChannel = 0;
-const int pwmResolution = 8;
+int PIN_SERVO_STEERING = 2;
+int PIN_ENGINE = 12;
+int PIN_ENGINE_REV = 13;
+int PIN_ENGINE_DIRECTION = 13;
+int PWM_CHANNEL_SERVO_STEERING = 3;
+int PWM_CHANNEL_ENGINE = 4;
+int PWM_CHANNEL_ENGINE_REV = 5;
 
 typedef struct {
         size_t size; //number of values used for filtering
@@ -462,49 +459,16 @@ static esp_err_t stream_handler(httpd_req_t *req){
     return res;
 }
 
-static esp_err_t flash_handler(httpd_req_t *req){
+static esp_err_t flash_handler(httpd_req_t *req) {
+  
     static char json_response[1024];
-
-
-
-
-    char*  buf;
-    size_t buf_len;
-    char variable[32] = {0,};
-    char value[32] = {0,};
-
-    buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1) {
-        buf = (char*)malloc(buf_len);
-        if(!buf){
-            httpd_resp_send_500(req);
-            return ESP_FAIL;
-        }
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-            if (httpd_query_key_value(buf, "fl", variable, sizeof(variable)) == ESP_OK) {
-              //ledcWrite(3, 50);
-              int speed;
-              sscanf(variable, "%d", &speed);
-              Serial.printf("var %d !!!", speed);
-            }
-        }
-        free(buf);
-    }
-
-//Serial.printf("var %s | %s", variable, value);
-//Serial.printf("zzzzzzzzzztt");
-
-
-
-
-    sensor_t * s = esp_camera_sensor_get();
     char * p = json_response;
+    
     flashlight = flashlight ? 0 : 1;
     gpio_set_level(GPIO_NUM_4, flashlight);
+    
     *p++ = '{';
-
-    p+=sprintf(p, "\"ttttt\": %d", flashlight);
-
+    p+=sprintf(p, "\"flashlight\": %d", flashlight);
     *p++ = '}';
     *p++ = 0;
     httpd_resp_set_type(req, "application/json");
@@ -515,13 +479,12 @@ static esp_err_t flash_handler(httpd_req_t *req){
 static esp_err_t speed_handler(httpd_req_t *req){
     static char json_response[1024];
 
-
     char*  buf;
     size_t buf_len;
     char variable[32] = {0,};
     char value[32] = {0,};
 
-    int speed1 = 0, speed2 = 0;
+    int speed = 0;
 
     buf_len = httpd_req_get_url_query_len(req) + 1;
     if (buf_len > 1) {
@@ -532,35 +495,30 @@ static esp_err_t speed_handler(httpd_req_t *req){
         }
         if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
             if (httpd_query_key_value(buf, "fl", variable, sizeof(variable)) == ESP_OK) {
-              int speed;
               sscanf(variable, "%d", &speed);
               Serial.printf("var %d !!!", speed);
-              ledcWrite(3, speed);
-              speed1 = speed;
-            }
-            if (httpd_query_key_value(buf, "fr", variable, sizeof(variable)) == ESP_OK) {
-              int speed;
+
+              if (speed > 0) {
+                ledcWrite(PWM_CHANNEL_ENGINE_REV, 0);
+                ledcWrite(PWM_CHANNEL_ENGINE, speed);
+              } else {
+                ledcWrite(PWM_CHANNEL_ENGINE, 0);
+                ledcWrite(PWM_CHANNEL_ENGINE_REV, abs(speed));
+              }
+            } else
+            if (httpd_query_key_value(buf, "rev", variable, sizeof(variable)) == ESP_OK) {
               sscanf(variable, "%d", &speed);
               Serial.printf("var %d !!!", speed);
-              ledcWrite(4, speed);
-              speed2 = speed;
+              ledcWrite(PWM_CHANNEL_ENGINE, 0);
+              ledcWrite(PWM_CHANNEL_ENGINE_REV, speed);
             }
         }
         free(buf);
     }
 
-//Serial.printf("var %s | %s", variable, value);
-//Serial.printf("zzzzzzzzzztt");
-
-
-
-
     char * p = json_response;
     *p++ = '{';
-
-    p+=sprintf(p, "\"speed_fl_12\": %d,", speed1);
-    p+=sprintf(p, "\"speed_fr_13\": %d", speed2);
-
+    p+=sprintf(p, "\"speed\": %d", speed);
     *p++ = '}';
     *p++ = 0;
     httpd_resp_set_type(req, "application/json");
@@ -590,7 +548,7 @@ static esp_err_t steering_handler(httpd_req_t *req){
             if (httpd_query_key_value(buf, "dir", variable, sizeof(variable)) == ESP_OK) {
               sscanf(variable, "%d", &direction);
               Serial.printf("var %d !!!", direction);
-              servo1.write(direction);
+              ledcWrite(PWM_CHANNEL_SERVO_STEERING, direction);
             }
         }
         free(buf);
@@ -747,6 +705,12 @@ static esp_err_t index_handler(httpd_req_t *req){
     return httpd_resp_send(req, (const char *)index_ov2640_html_gz, index_ov2640_html_gz_len);
 }
 
+static esp_err_t control_handler(httpd_req_t *req){
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    return httpd_resp_send(req, (const char *)control_html_gz, control_html_gz_len);
+}
+
 void startCameraServer(){
   
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -755,6 +719,13 @@ void startCameraServer(){
         .uri       = "/",
         .method    = HTTP_GET,
         .handler   = index_handler,
+        .user_ctx  = NULL
+    };
+
+    httpd_uri_t control_uri = {
+        .uri       = "/control_panel",
+        .method    = HTTP_GET,
+        .handler   = control_handler,
         .user_ctx  = NULL
     };
 
@@ -836,6 +807,7 @@ void startCameraServer(){
         httpd_register_uri_handler(camera_httpd, &flashlight_uri);
         httpd_register_uri_handler(camera_httpd, &speed_uri);
         httpd_register_uri_handler(camera_httpd, &steering_uri);
+        httpd_register_uri_handler(camera_httpd, &control_uri);
     }
 
     config.server_port += 1;
@@ -845,9 +817,6 @@ void startCameraServer(){
         httpd_register_uri_handler(stream_httpd, &stream_uri);
     }
 
-    gpio_set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_NUM_4, flashlight);
-
     //ledcSetup(pwmChannel, pwmFreq, pwmResolution);
     //ledcAttachPin(12, pwmChannel);   
     //ledcAttachPin(14, pwmChannel);  
@@ -855,22 +824,17 @@ void startCameraServer(){
     //ledcAttachPin(2, pwmChannel);  
     //ledcWrite(pwmChannel, 50);
 
-  ledcSetup(3, 2000, 8); // 2000 hz PWM, 8-bit resolution
-  ledcSetup(4, 2000, 8); // 2000 hz PWM, 8-bit resolution
-  ledcSetup(5, 2000, 8); // 2000 hz PWM, 8-bit resolution
-  ledcSetup(6, 2000, 8); // 2000 hz PWM, 8-bit resolution
+  ledcSetup(PWM_CHANNEL_ENGINE, 2000, 8); // 2000 hz PWM, 8-bit resolution
+  ledcSetup(PWM_CHANNEL_ENGINE_REV, 2000, 8); // 2000 hz PWM, 8-bit resolution
+  ledcSetup(PWM_CHANNEL_SERVO_STEERING, 50, 8); // 50 hz PWM, 8-bit resolution
   
-  ledcAttachPin(12, 3); 
-  ledcAttachPin(13, 4); 
-  ledcAttachPin(14, 5); 
-  ledcAttachPin(15, 6); 
-  //ledcWrite(3, 50);
+  ledcAttachPin(PIN_ENGINE, PWM_CHANNEL_ENGINE);
+  ledcAttachPin(PIN_ENGINE_REV, PWM_CHANNEL_ENGINE_REV); 
+  ledcAttachPin(PIN_SERVO_STEERING, PWM_CHANNEL_SERVO_STEERING); 
 
-  //gpio_set_level(GPIO_NUM_4, 1);
-
-  //servo1.setPeriodHertz(50);
-  //servo1.attach(12, 1000, 2000);
-  Serial.printf("ddddddddddd - %d", servo1.attach(2));
+  ledcWrite(PWM_CHANNEL_SERVO_STEERING, 19);
+  ledcWrite(PWM_CHANNEL_ENGINE, 0);
+  ledcWrite(PWM_CHANNEL_ENGINE_REV, 0);
 
 
 Serial.printf("zzzzzzzzzztt");
